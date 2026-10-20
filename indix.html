@@ -1,0 +1,161 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#10251d">
+<title>قياس الأراضي</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101a17;color:#f2f7f3;font-family:Arial,sans-serif}
+header{padding:18px;background:#19382b}
+h1{font-size:23px;margin:0 0 7px}
+header p{margin:0;color:#c4d6ca;font-size:13px}
+main{padding:14px;max-width:800px;margin:auto}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button{border:0;border-radius:9px;padding:11px 13px;font-weight:bold;background:#2b493b;color:white;cursor:pointer}
+.primary{background:#55ce8a;color:#10251d}
+#map{height:48vh;min-height:320px;border-radius:14px;overflow:hidden;border:1px solid #395346}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.stat{background:#1b2a23;border:1px solid #31473a;border-radius:12px;padding:15px}
+.stat small{color:#b4c7bb}
+.stat strong{display:block;font-size:23px;margin-top:8px;overflow-wrap:anywhere}
+.note{font-size:12px;color:#bac9bf;line-height:1.8}
+input{padding:11px;border-radius:8px;border:1px solid #496454;background:#1b2a23;color:white;min-width:0;flex:1}
+.search{display:flex;gap:8px;margin-bottom:10px}
+footer{text-align:center;padding:18px;color:#9eb3a5;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<h1>📐 قياس الأراضي</h1>
+<p>ارسم حدود أرضك واحسب مساحتها بسهولة</p>
+</header>
+<main>
+<div class="search">
+<input id="place" placeholder="ابحث عن منطقة أو مكان">
+<button onclick="searchPlace()">بحث</button>
+</div>
+<div class="tools">
+<button class="primary" onclick="undoPoint()">↩ تراجع</button>
+<button onclick="clearPoints()">مسح الرسم</button>
+<button onclick="locateMe()">موقعي</button>
+<button onclick="saveArea()">حفظ النتيجة</button>
+</div>
+<div id="map"></div>
+<div class="stats">
+<div class="stat"><small>المساحة بالمتر المربع</small><strong id="m2">0</strong></div>
+<div class="stat"><small>المساحة بالهكتار</small><strong id="ha">0</strong></div>
+<div class="stat"><small>المحيط بالمتر</small><strong id="perimeter">0</strong></div>
+<div class="stat"><small>عدد الزوايا</small><strong id="count">0</strong></div>
+</div>
+<p class="note">اضغط على الخريطة لتحديد زوايا الأرض بالتتابع. أضف ثلاث نقاط على الأقل لحساب المساحة. القياس تقريبي ولا يغني عن المسح العقاري.</p>
+</main>
+<footer>قياس الأراضي © 2026</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([32.3373,-6.3498],13);
+const normal=L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{maxZoom:19,attribution:'© OpenStreetMap contributors'}
+).addTo(map);
+const satellite=L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{maxZoom:19,attribution:'Tiles © Esri'}
+);
+L.control.layers(
+{'الخريطة العادية':normal,'صور الأقمار الصناعية':satellite},
+null,{position:'topright'}
+).addTo(map);
+
+let points=[];
+let markers=[];
+let polygon=null;
+let line=null;
+
+function update(){
+markers.forEach(m=>map.removeLayer(m));
+markers=points.map((p,i)=>L.marker(p).addTo(map)
+.bindTooltip('النقطة '+(i+1)));
+if(polygon)map.removeLayer(polygon);
+if(line)map.removeLayer(line);
+
+if(points.length>=3){
+polygon=L.polygon(points,{color:'#55ce8a',fillColor:'#55ce8a',fillOpacity:.22}).addTo(map);
+document.getElementById('m2').textContent=
+Math.round(L.GeometryUtil?L.GeometryUtil.geodesicArea(points):area(points)).toLocaleString('en-US');
+document.getElementById('ha').textContent=
+(area(points)/10000).toFixed(4);
+document.getElementById('perimeter').textContent=
+Math.round(perimeter(points)).toLocaleString('en-US');
+}else{
+if(points.length>=2){
+line=L.polyline(points,{color:'#55ce8a'}).addTo(map);
+document.getElementById('perimeter').textContent=
+Math.round(perimeter(points)).toLocaleString('en-US');
+}else document.getElementById('perimeter').textContent='0';
+document.getElementById('m2').textContent='0';
+document.getElementById('ha').textContent='0';
+}
+document.getElementById('count').textContent=points.length;
+}
+
+function area(p){
+if(p.length<3)return 0;
+const R=6378137;
+let sum=0;
+for(let i=0;i<p.length;i++){
+const a=p[i],b=p[(i+1)%p.length];
+sum+=(b.lng-a.lng)*Math.PI/180*
+(2+Math.sin(a.lat*Math.PI/180)+Math.sin(b.lat*Math.PI/180));
+}
+return Math.abs(sum*R*R/2);
+}
+function perimeter(p){
+let total=0;
+for(let i=0;i<p.length;i++){
+total+=map.distance(p[i],p[(i+1)%p.length]);
+}
+return p.length<2?0:total;
+}
+map.on('click',e=>{points.push(e.latlng);update()});
+function undoPoint(){points.pop();update()}
+function clearPoints(){points=[];update()}
+async function searchPlace(){
+const q=document.getElementById('place').value.trim();
+if(!q)return;
+try{
+const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q);
+const res=await fetch(url);
+const data=await res.json();
+if(data.length){
+map.setView([+data[0].lat,+data[0].lon],17);
+}else alert('لم يتم العثور على المكان');
+}catch(e){alert('تعذر البحث. تحقق من الاتصال بالإنترنت.')}
+}
+function locateMe(){
+if(!navigator.geolocation){alert('الموقع غير مدعوم');return}
+navigator.geolocation.getCurrentPosition(pos=>{
+map.setView([pos.coords.latitude,pos.coords.longitude],18);
+},()=>alert('اسمح للموقع بالوصول إلى موقعك'));
+}
+function saveArea(){
+if(points.length<3){alert('حدد ثلاث زوايا على الأقل');return}
+const result={
+area_m2:area(points).toFixed(2),
+area_hectares:(area(points)/10000).toFixed(4),
+perimeter_m:perimeter(points).toFixed(2),
+points:points.map(p=>[p.lat,p.lng])
+};
+const blob=new Blob([JSON.stringify(result,null,2)],{type:'application/json'});
+const a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download='land-measure.json';
+a.click();
+URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>
